@@ -1,0 +1,55 @@
+# Despliegue de demostración. Secretos en deploy/.env (no se sube al repo).
+name: restropro
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: restropro_saas
+    volumes:
+      - db:/var/lib/mysql
+      - ../backend/restropro_saas.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASSWORD}"]
+      interval: 5s
+      retries: 30
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/backend.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql://root:${DB_ROOT_PASSWORD}@db:3306/restropro_saas
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY: 15m
+      JWT_EXPIRY_REFRESH: 30d
+      COOKIE_EXPIRY: "900000"
+      COOKIE_EXPIRY_REFRESH: "2592000000"
+      PASSWORD_SALT: "10"
+      FRONTEND_DOMAIN: ${PUBLIC_URL}
+      FRONTEND_DOMAIN_COOKIE: ${PUBLIC_HOST}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    volumes:
+      - uploads:/app/public
+
+  web:
+    build:
+      context: ../frontend
+      dockerfile: ../deploy/frontend.Dockerfile
+      additional_contexts:
+        deploy: .
+      args:
+        PUBLIC_URL: ${PUBLIC_URL}
+    restart: unless-stopped
+    depends_on: [backend]
+    ports:
+      - "172.17.0.1:${WEB_PORT}:80"
+
+volumes:
+  db:
+  uploads:
